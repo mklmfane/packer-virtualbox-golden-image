@@ -1,24 +1,42 @@
+variable "golden_image" {
+  type    = string
+  default = "../ubuntu2404-golden-image/output-ubuntu2404/ubuntu-2404-k8s-template.ovf"
+}
+
 variable "ssh_username" {
   type    = string
-  default = "kube"
+  default = "ubuntu"
 }
 
 variable "ssh_private_key_file" {
   type    = string
-  default = "${env("HOME")}/.ssh/k8s_kubespray"
+  default = "~/.ssh/kubespray-lab"
 }
 
-variable "ssh_pubkey" {
+variable "vm_name" {
   type = string
 }
 
-variable "vm_hostname" {
-  type    = string
-  default = "ubuntu-k8s-template"
+variable "node_ip" {
+  type = string
 }
 
-# Autoinstall requires a hash even if we lock the account.
-variable "password_hash" {
+variable "hostonly_adapter" {
   type    = string
-  default = "$6$Qibx35EfIQbiJ5n0$kP/0I1358GyOqdNHPhitv9Z8Ak00RBeTv0HXBs58iR.LPStTPIvApyvnJMM5JCMnI5QMuRP1Hv3RnBDgZMfrg."
+  default = "vboxnet0"
+}
+
+variable "cpus" {
+  type    = number
+  default = 2
+}
+
+variable "memory" {
+  type    = number
+  default = 2048
+}
+
+variable "headless" {
+  type    = bool
+  default = true
 }

@@ -23,6 +23,7 @@ source "virtualbox-iso" "ubuntu2404" {
   iso_checksum = var.iso_checksum
 
   format           = "ovf"
+  export_opts      = ["--ovf20"]
   output_directory = "${path.root}/output-ubuntu2404"
 
   http_content = {
@@ -45,7 +46,7 @@ source "virtualbox-iso" "ubuntu2404" {
   host_port_min          = 2222
   host_port_max          = 2299
 
-  boot_wait         = "10s"
+  boot_wait              = "10s"
   boot_keygroup_interval = "100ms"
   boot_command = [
     "<esc><wait>",
@@ -88,3 +89,4 @@ build {
 
   # Node deployment is a separate operation after a successful export.
 }
+

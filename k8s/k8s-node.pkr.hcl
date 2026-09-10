@@ -1,59 +1,70 @@
-locals {
-  dns_netplan = join(", ", var.dns_servers)
-  dns_space   = join(" ", var.dns_servers)
-  k8s_short   = substr(var.kubernetes_version, 0, 4)
-
-  control_last = parseint(split(".", var.control_ip)[3], 10)
-  node_last    = parseint(split(".", var.node_ip)[3], 10)
-  node_index   = local.node_last - local.control_last
-
-  hostname = var.role == "controlplane" ? "controlplane" : format("node%02d", local.node_index)
+packer {
+  required_version = ">= 1.9.0"
+  required_plugins {
+    virtualbox = {
+      source  = "github.com/hashicorp/virtualbox"
+      version = "= 1.1.5"
+    }
+  }
 }
 
-source "virtualbox-ovf" "k8s-node" {
-  source_path = "${path.root}/output/k8s-base/k8s-base-ubuntu-24-04.ova"
-  checksum    = "none"
-
-  vm_name              = var.k8s_vm_name
-  headless             = true
+source "virtualbox-ovf" "node" {
+  source_path          = abspath(var.golden_image)
+  #checksum             = "sha256:${filesha256(abspath(var.golden_image))}"
+  checksum             = "sha256:${sha256(file(abspath(var.golden_image)))}"
+  vm_name              = var.vm_name
+  headless             = var.headless
   guest_additions_mode = "disable"
-
-  communicator         = "ssh"
   ssh_username         = var.ssh_username
   ssh_private_key_file = pathexpand(var.ssh_private_key_file)
-  ssh_timeout          = "10m"
-
-  skip_export     = true
-  keep_registered = true
-
+  ssh_timeout          = "20m"
+  host_port_min        = 2222
+  host_port_max        = 2299
+  keep_registered      = true
+  skip_export          = true
+  output_directory     = "${path.root}/output/${var.vm_name}"
+  shutdown_command     = "sudo -n shutdown -P now"
+  shutdown_timeout     = "15m"
   vboxmanage = [
-    ["modifyvm", "{{.Name}}", "--nic2", "hostonly"],
-    ["modifyvm", "{{.Name}}", "--hostonlyadapter2", var.hostonly_adapter],
-    ["modifyvm", "{{.Name}}", "--cableconnected2", "on"]
+    ["modifyvm", "{{.Name}}", "--cpus", "${var.cpus}", "--memory", "${var.memory}"],
+    ["modifyvm", "{{.Name}}", "--nic2", "hostonly", "--hostonlyadapter2", var.hostonly_adapter, "--cableconnected2", "on"],
+    ["setextradata", "{{.Name}}", "lab.project", "packer-virtualbox-golden-image"]
   ]
-
-  shutdown_command = "sudo shutdown -P now"
-  shutdown_timeout = "10m"
-
-  output_directory = "${path.root}/output/k8s-nodes/${var.k8s_vm_name}"
 }
 
 build {
-  sources = ["source.virtualbox-ovf.k8s-node"]
-
+  sources = ["source.virtualbox-ovf.node"]
+  
   provisioner "shell" {
-    execute_command = "sudo -E bash '{{ .Path }}'"
     inline = [
-      "hostnamectl set-hostname ${local.hostname}",
-      "mkdir -p /opt/k8s-share",
-
-      "cat >/etc/k8s-lab.env <<'EOF'\nROLE=${var.role}\nNODE_IP=${var.node_ip}\nCONTROL_IP=${var.control_ip}\nWORKER_COUNT=${var.worker_count}\nDNS_SERVERS=\"${local.dns_space}\"\nDNS_SERVERS_NETPLAN=\"${local.dns_netplan}\"\nPOD_CIDR=${var.pod_cidr}\nSERVICE_CIDR=${var.service_cidr}\nKUBERNETES_VERSION=${var.kubernetes_version}\nKUBERNETES_VERSION_SHORT=${local.k8s_short}\nCALICO_VERSION=${var.calico_version}\nDASHBOARD_VERSION=${var.dashboard_version}\nJOIN_SERVER_PORT=8081\nEOF",
-      "chmod 600 /etc/k8s-lab.env",
-
-      "systemctl enable k8s-bootstrap.service",
-
-      "test -f /etc/k8s-lab.env",
-      "test -f /etc/systemd/system/k8s-bootstrap.service"
+      "sudo -n cloud-init status --wait --long"
     ]
+
+    valid_exit_codes = [0, 2]
+  }
+
+  provisioner "file" {
+    content     = jsonencode({ hostname = var.vm_name, node_ip = var.node_ip, ssh_username = var.ssh_username, role = var.role, control_ip = var.control_ip, pod_cidr = var.pod_cidr, service_cidr = var.service_cidr, kubernetes_minor = var.kubernetes_minor, calico_version = var.calico_version })
+    destination = "/tmp/lab-node.json"
+  }
+  provisioner "shell" {
+    inline = ["sudo -n install -m 0600 /tmp/lab-node.json /etc/lab-node.json", "rm /tmp/lab-node.json"]
+  }
+  provisioner "shell" {
+    script          = "${path.root}/../scripts/configure-node.sh"
+    execute_command = "chmod +x {{ .Path }}; sudo -n bash '{{ .Path }}'"
+  }
+  provisioner "shell" {
+    inline = ["mkdir -p /tmp/k8s-scripts"]
+  }
+  provisioner "file" {
+    source      = "${path.root}/scripts/"
+    destination = "/tmp/k8s-scripts/"
+  }
+  provisioner "shell" {
+    inline = ["sudo -n mkdir -p /opt/k8s-lab", "sudo -n cp -a /tmp/k8s-scripts/. /opt/k8s-lab/", "sudo -n chmod 0755 /opt/k8s-lab/*.sh", "sudo -n /opt/k8s-lab/common.sh"]
+  }
+  provisioner "shell" {
+    inline = ["sudo -n touch /etc/lab-provisioned"]
   }
 }
