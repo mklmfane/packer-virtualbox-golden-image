@@ -6,22 +6,18 @@ This package prepares one reusable Ubuntu Server image using Packer and VirtualB
 It contains source files, not an already-built OVF or disk image.
 
 The workflow is: build the base image; import separate VMs; give each VM its own
-identity and cluster-network address; run Kubespray from an Ansible controller.
+identity and cluster-network address.
 The image has SSH, Python 3, passwordless sudo for the configured account, swap
-disabled, IPv4 forwarding and bridge modules. Kubespray installs and configures
-the container runtime, Kubernetes, etcd and CNI later.
+disabled, IPv4 forwarding and bridge modules.
 
 ## Repository placement
 
-Your supplied origin is the upstream repository:
-https://github.com/kubernetes-sigs/kubespray.git
 
 You can use this image project in a sibling directory, or copy this directory
-into `packer/ubuntu2404-golden-image/` in your local Kubespray checkout. No remote
+into `packer/ubuntu2404-golden-image/` in the checkout pointing your local branch . No remote
 change is required to build locally. To publish your customizations, use your own
 repository or fork; an upstream origin does not grant permission to push there.
-Use a deliberately selected Kubespray release and its matching requirements when
-you reach the cluster-installation stage. The default branch can change.
+
 
 ## Host prerequisites
 
@@ -53,7 +49,7 @@ packer build -var-file=values.pkrvars.hcl .
 The final `.` is required: it selects the directory containing the `.pkr.hcl`
 files. `packer { ... }` belongs in the HCL file, not on the build command line.
 
-`configure.sh` creates or reuses `~/.ssh/kubespray-lab`, confirms its public key
+`configure.sh` creates or reuses `~/.ssh/kubernetes-packer-lab`, confirms its public key
 matches, and writes `values.pkrvars.hcl`. It never overwrites an existing values
 file or key. A dedicated unencrypted SSH key enables unattended builds; protect
 that private key on the host. Only its public key is baked into this lab image.
@@ -68,7 +64,7 @@ both absolute key paths. The password is locked by default. If console login is
 needed, generate a hash with `openssl passwd -6` and set `password_hash` to that
 hash in the values file. SSH password login remains disabled.
 
-Ubuntu 24.04.3 is retained from the supplied configuration. Its SHA-256 is pinned
+Ubuntu 24.04.5 is retained from the supplied configuration. Its SHA-256 is pinned
 from Ubuntu's published SHA256SUMS. If using another point-release ISO, override
 both `iso_url` and `iso_checksum` together. If a pinned ISO is moved, supply its
 verified local file path or an official mirror URL with the same checksum.
@@ -105,11 +101,7 @@ Before integrating your deployment script, ensure it:
    node2/.12 and node3/.13. The host may use 192.168.56.1.
 4. Configures the second NIC in netplan with no default route; NAT remains the
    default route. Verify actual interface names with `ip -br link`.
-5. Uses host-only IPs for Kubespray `ansible_host`, `ip` and `access_ip`.
-   Individual NAT VMs often all have 10.0.2.15 internally; do not use those
-   addresses for cluster communication.
-6. Verifies node-to-node connectivity and the chosen Kubernetes/CNI firewall
-   requirements before running Kubespray.
+
 
 Cloud-init is cleaned before export. A clone generates a new machine ID and SSH
 host keys on boot. For NoCloud personalization, attach a separate `cidata` seed
@@ -133,7 +125,7 @@ VBoxManage startvm ubuntu2404-image-test --type headless
 After boot, connect using the key configured for this build:
 
 ```bash
-ssh -i "$HOME/.ssh/kubespray-lab" -p 2301 ubuntu@127.0.0.1
+ssh -i "$HOME/.ssh/kuberntes-packer-lab" -p 2301 ubuntu@127.0.0.1
 sudo -n true
 python3 --version
 cat /etc/image-build-info
@@ -170,7 +162,6 @@ fresh MACs is also necessary; guest cleanup does not change VirtualBox MACs.
 
 ## Validation status
 
-Prepared against the official documentation and upstream Kubespray README.
 Shell scripts were checked with `bash -n`; a representative rendered autoinstall
 document was parsed as YAML. Packer and VirtualBox are unavailable in the authoring
 environment, so `packer validate`, installer boot, export and clone smoke tests
@@ -179,7 +170,6 @@ image build.
 
 ## References
 
-- https://github.com/kubernetes-sigs/kubespray
 - https://developer.hashicorp.com/packer/integrations/hashicorp/virtualbox/latest/components/builder/iso
 - https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html
 - https://docs.cloud-init.io/en/latest/reference/cli.html
