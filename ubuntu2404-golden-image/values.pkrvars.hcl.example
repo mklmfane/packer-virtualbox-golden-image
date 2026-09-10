@@ -1,7 +1,7 @@
 ssh_username         = "ubuntu"
 ssh_private_key_file = "/home/YOUR_USER/.ssh/kubespray-lab"
 ssh_public_key_file  = "/home/YOUR_USER/.ssh/kubespray-lab.pub"
-vm_hostname          = "ubuntu-2404-k8s-template"
+vm_hostname          = "ubuntu-2405-k8s-template"
 headless             = true
 cpus                 = 2
 memory               = 4096

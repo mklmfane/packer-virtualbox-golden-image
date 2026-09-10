@@ -72,6 +72,55 @@ def ensure_key(c):
         raise ValueError('The .pub file must match the unencrypted private key.')
 
 
+def check_kubernetes_repositories(c):
+    """Check repository signing-key URLs from the host before provisioning."""
+    if not shutil.which('curl'):
+        raise ValueError('Missing host command: curl')
+
+    minor = c['kubernetes_minor']
+    print(f'Configured Kubernetes minor: {minor}', flush=True)
+    urls = {
+        'Kubernetes': (
+            f'https://pkgs.k8s.io/core:/stable:/v{minor}/deb/Release.key'
+        ),
+        'CRI-O': (
+            'https://download.opensuse.org/repositories/'
+            f'isv:/cri-o:/stable:/v{minor}/deb/Release.key'
+        ),
+    }
+    failures = []
+    for name, url in urls.items():
+        print(f'\n{name}: {url}', flush=True)
+        try:
+            result = subprocess.run(
+                ['curl', '--fail', '--silent', '--show-error', '--location',
+                 '--connect-timeout', '10', '--max-time', '30',
+                 '--output', os.devnull, '--write-out', '%{http_code}', url],
+                text=True, capture_output=True, timeout=35,
+            )
+        except subprocess.TimeoutExpired:
+            failures.append(f'{name}: timed out checking {url}')
+            print('Timed out', flush=True)
+            continue
+
+        status = result.stdout.strip() or '000'
+        print(f'HTTP {status}', flush=True)
+        if result.returncode != 0 or not re.fullmatch(r'2[0-9]{2}', status):
+            detail = result.stderr.strip() or 'Expected a successful HTTP 2xx response.'
+            failures.append(
+                f'{name}: {url} (HTTP {status}, curl exit {result.returncode})\n'
+                f'  {detail}'
+            )
+
+    if failures:
+        raise ValueError(
+            'Repository checks failed; Kubernetes provisioning was not started.\n'
+            + '\n'.join(failures)
+            + '\nReview kubernetes_minor in lab.local.json and repository availability.'
+        )
+    print('Both repository signing-key URLs are reachable from this host.', flush=True)
+
+
 def ensure_network(c):
     blocks = output(['VBoxManage', 'list', 'hostonlyifs']).split('\n\n')
     interfaces = {}
@@ -158,6 +207,8 @@ def packer(c, directory, values):
 def up(c, group):
     if not OVF.is_file():
         raise ValueError('Build the golden image first: python3 scripts/lab.py golden')
+    if group == 'k8s':
+        check_kubernetes_repositories(c)
     ensure_network(c)
     nodes=sorted(c['nodes'][group],key=lambda n:n.get('role')!='controlplane')
     control=next(n for n in c['nodes']['k8s'] if n['role']=='controlplane')

@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source /opt/k8s-lab/env.sh
+
+# Synchronize time before creating certificates or joining the cluster.
+systemctl enable --now chrony
+chronyc makestep
+chronyc waitsync 60 0.1 0.0 2
+
 [[ "$ROLE" == worker ]]
 if [[ -f /etc/kubernetes/kubelet.conf ]]; then
   echo 'Worker is already joined.'

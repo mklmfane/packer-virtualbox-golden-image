@@ -10,7 +10,7 @@ variable "ssh_username" {
 
 variable "ssh_private_key_file" {
   type    = string
-  default = "~/.ssh/kubespray-lab"
+  default = "~/.ssh/kubernetes-packer-lab"
 }
 
 variable "vm_name" {
@@ -63,10 +63,10 @@ variable "service_cidr" {
 
 variable "kubernetes_minor" {
   type    = string
-  default = "1.34"
+  default = "1.36"
 }
 
 variable "calico_version" {
   type    = string
-  default = "3.31.0"
+  default = "3.32.2"
 }

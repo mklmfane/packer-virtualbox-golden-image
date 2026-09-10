@@ -3,8 +3,8 @@
   "ssh_private_key_file": "~/.ssh/kubespray-lab",
   "hostonly_adapter": "vboxnet0",
   "hostonly_ip": "192.168.56.1",
-  "kubernetes_minor": "1.34",
-  "calico_version": "3.31.0",
+  "kubernetes_minor": "1.36",
+  "calico_version": "3.32.2",
   "pod_cidr": "172.16.0.0/16",
   "service_cidr": "172.17.0.0/18",
   "nodes": {
@@ -14,21 +14,21 @@
         "ip": "192.168.56.10",
         "role": "controlplane",
         "cpus": 2,
-        "memory": 4096
+        "memory": 2048
       },
       {
         "name": "k8s-worker-01",
         "ip": "192.168.56.11",
         "role": "worker",
         "cpus": 2,
-        "memory": 2048
+        "memory": 3096
       },
       {
         "name": "k8s-worker-02",
         "ip": "192.168.56.12",
         "role": "worker",
         "cpus": 2,
-        "memory": 2048
+        "memory": 3096
       }
     ],
     "ubuntu": [

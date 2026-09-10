@@ -4,7 +4,12 @@ source /opt/k8s-lab/env.sh
 export DEBIAN_FRONTEND=noninteractive
 [[ "$KUBERNETES_MINOR" =~ ^1\.[0-9]+$ ]]
 apt-get update
-apt-get install -y ca-certificates curl gnupg conntrack socat ipset python3-yaml
+apt-get install -y ca-certificates curl gnupg conntrack socat ipset python3-yaml chrony
+systemctl enable --now chrony
+chronyc makestep
+chronyc waitsync 60 0.1 0.0 2
+timedatectl set-local-rtc 0
+
 swapoff -a
 sed -ri '/^[^#].*[[:space:]]swap[[:space:]]/s/^/#/' /etc/fstab
 modprobe overlay

@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source /opt/k8s-lab/env.sh
+
+# Synchronize time before creating certificates or joining the cluster.
+systemctl enable --now chrony
+chronyc makestep
+chronyc waitsync 60 0.1 0.0 2
+
 [[ "$ROLE" == controlplane ]]
 if [[ ! -f /etc/kubernetes/admin.conf ]]; then
   # Fail on partial init; never reset or delete existing cluster data automatically.

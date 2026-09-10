@@ -10,7 +10,8 @@ packer {
 
 source "virtualbox-ovf" "node" {
   source_path          = abspath(var.golden_image)
-  checksum             = "sha256:${filesha256(abspath(var.golden_image))}"
+  #checksum             = "sha256:${filesha256(abspath(var.golden_image))}"
+  checksum             = "sha256:${sha256(file(abspath(var.golden_image)))}"
   vm_name              = var.vm_name
   headless             = var.headless
   guest_additions_mode = "disable"
@@ -33,9 +34,15 @@ source "virtualbox-ovf" "node" {
 
 build {
   sources = ["source.virtualbox-ovf.node"]
+  
   provisioner "shell" {
-    inline = ["sudo -n cloud-init status --wait"]
+    inline = [
+      "sudo -n cloud-init status --wait --long"
+    ]
+
+    valid_exit_codes = [0, 2]
   }
+
   provisioner "file" {
     content     = jsonencode({ hostname = var.vm_name, node_ip = var.node_ip, ssh_username = var.ssh_username, role = var.role, control_ip = var.control_ip, pod_cidr = var.pod_cidr, service_cidr = var.service_cidr, kubernetes_minor = var.kubernetes_minor, calico_version = var.calico_version })
     destination = "/tmp/lab-node.json"
