@@ -1,0 +1,2 @@
+instance-id: k8s-base-ubuntu-24-04
+local-hostname: k8s-base

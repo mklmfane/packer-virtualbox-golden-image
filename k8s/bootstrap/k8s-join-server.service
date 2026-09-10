@@ -1,0 +1,15 @@
+[Unit]
+Description=Serve join.sh and kubeconfig for workers
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/opt/k8s-share
+ExecStartPre=/usr/bin/test -f /opt/k8s-share/join.sh
+ExecStartPre=/usr/bin/test -f /opt/k8s-share/config
+ExecStart=/usr/bin/python3 -m http.server 8081 --bind 0.0.0.0
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

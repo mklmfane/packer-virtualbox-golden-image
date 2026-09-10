@@ -4,3 +4,5 @@
 # VirtualBox image exports
 *.vmdk
 *.ovf
+# Generated output directories
+output/

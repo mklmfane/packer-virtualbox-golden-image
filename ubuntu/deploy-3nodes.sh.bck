@@ -1,0 +1,364 @@
+#!/usr/bin/env bash
+set -euo pipefail
+trap 'echo "ERROR on line $LINENO" >&2' ERR
+
+# ----------------------------
+# Config (override via env)
+# ----------------------------
+OVF="${OVF:-output-ubuntu2404/ubuntu-2404-k8s-template.ovf}"
+
+# Use HOSTONLY=auto to pick a good one (recommended)
+HOSTONLY="${HOSTONLY:-auto}"
+
+HOSTONLY_IP="${HOSTONLY_IP:-192.168.56.1}"
+HOSTONLY_MASK="${HOSTONLY_MASK:-255.255.255.0}"
+HOSTONLY_NET="${HOSTONLY_NET:-192.168.56.0/24}"
+
+# Clean up duplicate host-only adapters that share HOSTONLY_IP/MASK and are not used by any VM
+CLEANUP_DUP_HOSTONLY="${CLEANUP_DUP_HOSTONLY:-true}"
+
+SSH_USER="${SSH_USER:-kube}"
+SSH_KEY="${SSH_KEY:-$HOME/.ssh/k8s_kubespray}"
+
+# Cluster nodes
+declare -A IPS=(
+  [k8s-cp1]="192.168.56.11"
+  [k8s-w1]="192.168.56.12"
+  [k8s-w2]="192.168.56.13"
+)
+
+# NAT forwarded ports for SSH (host -> guest:22)
+declare -A PFPORTS=(
+  [k8s-cp1]="2222"
+  [k8s-w1]="2223"
+  [k8s-w2]="2224"
+)
+
+# ----------------------------
+# Helpers
+# ----------------------------
+die(){ echo "ERROR: $*" >&2; exit 1; }
+need(){ command -v "$1" >/dev/null 2>&1 || die "Missing command: $1"; }
+
+need VBoxManage
+need awk
+need sed
+need ip
+need ssh
+
+[[ -f "$OVF" ]] || die "OVF not found: $OVF"
+[[ -f "$SSH_KEY" ]] || die "SSH key not found: $SSH_KEY"
+
+# Parse host-only interfaces: "name ip mask status"
+list_hostonly_table() {
+  VBoxManage list hostonlyifs | awk '
+    function trim(s){ gsub(/^[ \t]+|[ \t]+$/,"",s); return s }
+    /^Name:/        { if(name!=""){ print name, ip, mask, status }
+                      name=trim(substr($0,index($0,$2)))
+                      ip=""; mask=""; status=""
+                    }
+    /^IPAddress:/   { ip=trim(substr($0,index($0,$2))) }
+    /^NetworkMask:/ { mask=trim(substr($0,index($0,$2))) }
+    /^Status:/      { status=trim(substr($0,index($0,$2))) }
+    END             { if(name!=""){ print name, ip, mask, status } }
+  ' | sed '/^$/d'
+}
+
+hostonly_exists() {
+  list_hostonly_table | awk '{print $1}' | grep -qx "$1"
+}
+
+linux_if_exists() {
+  ip link show "$1" >/dev/null 2>&1
+}
+
+# VMs that exist might already be using some host-only adapters; do not remove those.
+hostonly_in_use_by_any_vm() {
+  local hif="$1"
+  VBoxManage list vms | awk -F\" '{print $2}' | while read -r vm; do
+    [[ -n "$vm" ]] || continue
+    VBoxManage showvminfo "$vm" --machinereadable 2>/dev/null \
+      | awk -F= '/^hostonlyadapter[0-9]+=/{gsub(/"/,"",$2); print $2}' \
+      | grep -qx "$hif" && exit 0
+  done
+  return 1
+}
+
+create_hostonly() {
+  # Output looks like: "Interface 'vboxnet0' was successfully created"
+  local out created
+  out="$(VBoxManage hostonlyif create 2>/dev/null || true)"
+  created="$(echo "$out" | sed -n "s/.*'\(vboxnet[0-9]\+\)'.*/\1/p" | head -n1)"
+  [[ -n "$created" ]] || die "Could not parse created host-only interface from: $out"
+  echo "$created"
+}
+
+pick_hostonly() {
+  local picked=""
+
+  # If user specified explicit adapter, use it (must exist)
+  if [[ "$HOSTONLY" != "auto" ]]; then
+    hostonly_exists "$HOSTONLY" || die "HOSTONLY=$HOSTONLY not found in VBoxManage list hostonlyifs"
+    echo "$HOSTONLY"
+    return
+  fi
+
+  # Prefer an adapter that:
+  #  - exists on Linux (ip link show works)
+  #  - has the desired IP/mask in VirtualBox config
+  while read -r name ipaddr mask status; do
+    [[ -n "$name" ]] || continue
+    if [[ "$ipaddr" == "$HOSTONLY_IP" && "$mask" == "$HOSTONLY_MASK" ]] && linux_if_exists "$name"; then
+      picked="$name"
+      break
+    fi
+  done < <(list_hostonly_table)
+
+  if [[ -n "$picked" ]]; then
+    echo "$picked"
+    return
+  fi
+
+  # Otherwise: if any hostonly exists on Linux, take the first Linux-visible one
+  while read -r name ipaddr mask status; do
+    [[ -n "$name" ]] || continue
+    if linux_if_exists "$name"; then
+      picked="$name"
+      break
+    fi
+  done < <(list_hostonly_table)
+
+  if [[ -n "$picked" ]]; then
+    echo "$picked"
+    return
+  fi
+
+  # Otherwise: create one
+  picked="$(create_hostonly)"
+  echo "$picked"
+}
+
+cleanup_duplicates() {
+  [[ "$CLEANUP_DUP_HOSTONLY" == "true" ]] || return 0
+
+  echo "[*] Checking for duplicate host-only adapters with ${HOSTONLY_IP}/${HOSTONLY_MASK} ..."
+  while read -r name ipaddr mask status; do
+    [[ -n "$name" ]] || continue
+    [[ "$name" == "$HOSTONLY" ]] && continue
+    [[ "$ipaddr" == "$HOSTONLY_IP" && "$mask" == "$HOSTONLY_MASK" ]] || continue
+
+    if hostonly_in_use_by_any_vm "$name"; then
+      echo "    [-] Keep $name (in use by some VM)"
+      continue
+    fi
+
+    echo "    [+] Removing unused duplicate: $name"
+    VBoxManage hostonlyif remove "$name" >/dev/null 2>&1 || true
+  done < <(list_hostonly_table)
+}
+
+ensure_host_side_route() {
+  echo "[*] Ensuring host OS interface + route for ${HOSTONLY_NET} via ${HOSTONLY} ..."
+
+  # Bring interface up (may require sudo)
+  sudo ip link set "$HOSTONLY" up || true
+
+  # Ensure address exists on host interface
+  if ! ip -4 addr show dev "$HOSTONLY" | grep -q "${HOSTONLY_IP}/"; then
+    sudo ip addr add "${HOSTONLY_IP}/24" dev "$HOSTONLY" || true
+  fi
+
+  # Ensure route exists (replace to avoid duplicates)
+  sudo ip route replace "$HOSTONLY_NET" dev "$HOSTONLY" || true
+
+  echo "    Host interface:"
+  ip -br a | grep -E "^${HOSTONLY}\b" || true
+  echo "    Host route:"
+  ip route | grep -F "$HOSTONLY_NET" || true
+}
+
+ensure_hostonly() {
+  HOSTONLY="$(pick_hostonly)"
+  echo "[*] Using host-only adapter: $HOSTONLY"
+
+  # Configure VirtualBox side
+  echo "[*] Setting VirtualBox host-only IP: $HOSTONLY -> ${HOSTONLY_IP}/${HOSTONLY_MASK}"
+  VBoxManage hostonlyif ipconfig "$HOSTONLY" --ip "$HOSTONLY_IP" --netmask "$HOSTONLY_MASK"
+
+  # Optional cleanup of duplicates
+  cleanup_duplicates
+
+  # Ensure host OS route and iface are correct
+  ensure_host_side_route
+
+  echo "[*] Host-only list (post-fix):"
+  VBoxManage list hostonlyifs | sed 's/^/    /'
+}
+
+vm_exists() { VBoxManage list vms | grep -q "\"$1\""; }
+
+vm_state() {
+  VBoxManage showvminfo "$1" --machinereadable |
+    awk -F= '/^VMState=/{gsub(/"/,"",$2); print $2}'
+}
+
+poweroff_if_running() {
+  local name="$1"
+  if [[ "$(vm_state "$name")" == "running" ]]; then
+    echo "[*] Powering off $name ..."
+    VBoxManage controlvm "$name" poweroff
+  fi
+}
+
+import_vm_if_needed() {
+  local name="$1"
+  if vm_exists "$name"; then
+    echo "[*] VM $name already exists (will reconfigure)."
+    return
+  fi
+  echo "[*] Importing OVF as $name ..."
+  VBoxManage import "$OVF" --vsys 0 --vmname "$name"
+}
+
+vb_mac_to_colon() { echo "$1" | tr '[:upper:]' '[:lower:]' | sed 's/../&:/g;s/:$//'; }
+
+get_mac() {
+  local name="$1" nic="$2"
+  local raw
+  raw="$(VBoxManage showvminfo "$name" --machinereadable |
+    awk -F= -v k="macaddress${nic}" '$1==k {gsub(/"/,"",$2); print $2}')"
+  [[ -n "$raw" ]] || die "Could not read macaddress${nic} for $name"
+  vb_mac_to_colon "$raw"
+}
+
+configure_vm_nics() {
+  local name="$1" pfport="$2"
+
+  poweroff_if_running "$name"
+
+  echo "[*] Configuring NICs for $name: NIC1 NAT + PF, NIC2 host-only ($HOSTONLY)"
+  VBoxManage modifyvm "$name" --nic1 nat
+  VBoxManage modifyvm "$name" --nic2 hostonly --hostonlyadapter2 "$HOSTONLY" --cableconnected2 on
+
+  # Ensure unique MACs (avoid collisions)
+  VBoxManage modifyvm "$name" --macaddress1 auto --macaddress2 auto
+
+  # NAT port forward for SSH
+  VBoxManage modifyvm "$name" --natpf1 delete "ssh" >/dev/null 2>&1 || true
+  VBoxManage modifyvm "$name" --natpf1 "ssh,tcp,127.0.0.1,${pfport},,22"
+}
+
+start_vm() {
+  local name="$1"
+  echo "[*] Starting $name ..."
+  VBoxManage startvm "$name" --type headless >/dev/null
+}
+
+wait_for_ssh() {
+  local pfport="$1"
+  echo "[*] Waiting for SSH on 127.0.0.1:${pfport} ..."
+  for _ in {1..120}; do
+    if ssh -i "$SSH_KEY" -p "$pfport" \
+      -o BatchMode=yes -o ConnectTimeout=2 \
+      -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+      "${SSH_USER}@127.0.0.1" "true" >/dev/null 2>&1; then
+      echo "    SSH is up."
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+apply_hostonly_netplan_via_nat() {
+  local name="$1" ipaddr="$2" pfport="$3"
+
+  local mac1 mac2
+  mac1="$(get_mac "$name" 1)"
+  mac2="$(get_mac "$name" 2)"
+  echo "[*] $name MAC1=$mac1 MAC2=$mac2"
+
+  local netplan
+  netplan="$(cat <<EOF
+network:
+  version: 2
+  ethernets:
+    nat0:
+      match:
+        macaddress: ${mac1}
+      dhcp4: true
+    host0:
+      match:
+        macaddress: ${mac2}
+      dhcp4: false
+      addresses: [${ipaddr}/24]
+EOF
+)"
+
+  echo "[*] Writing /etc/netplan/99-hostonly.yaml (mode 600) and applying netplan on $name ..."
+  # Create file with strict perms, then tee content into it
+  ssh -i "$SSH_KEY" -p "$pfport" \
+    -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    "${SSH_USER}@127.0.0.1" \
+    "sudo install -m 600 /dev/null /etc/netplan/99-hostonly.yaml"
+
+  printf "%s\n" "$netplan" | ssh -i "$SSH_KEY" -p "$pfport" \
+    -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    "${SSH_USER}@127.0.0.1" \
+    "sudo tee /etc/netplan/99-hostonly.yaml >/dev/null"
+
+  ssh -i "$SSH_KEY" -p "$pfport" \
+    -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    "${SSH_USER}@127.0.0.1" \
+    "sudo netplan generate && sudo netplan apply && ip -4 -br a"
+}
+
+ping_test() {
+  local ipaddr="$1"
+  if ping -c1 -W1 "$ipaddr" >/dev/null 2>&1; then
+    echo "    [OK] ping $ipaddr"
+    return 0
+  else
+    echo "    [FAIL] ping $ipaddr"
+    return 1
+  fi
+}
+
+# ----------------------------
+# Main
+# ----------------------------
+ensure_hostonly
+
+for name in k8s-cp1 k8s-w1 k8s-w2; do
+  ipaddr="${IPS[$name]}"
+  pf="${PFPORTS[$name]}"
+
+  import_vm_if_needed "$name"
+  configure_vm_nics "$name" "$pf"
+  start_vm "$name"
+
+  if ! wait_for_ssh "$pf"; then
+    die "SSH never came up on NAT port $pf for $name. Check: VBoxManage showvminfo $name | egrep -i 'NIC|natpf'"
+  fi
+
+  apply_hostonly_netplan_via_nat "$name" "$ipaddr" "$pf"
+done
+
+echo
+echo "[*] Host-only connectivity test from HOST:"
+for name in k8s-cp1 k8s-w1 k8s-w2; do
+  ipaddr="${IPS[$name]}"
+  echo "  - $name ($ipaddr)"
+  ping_test "$ipaddr" || true
+done
+
+echo
+echo "[*] Try host-only SSH (best for Kubespray):"
+echo "    ssh -i ${SSH_KEY} ${SSH_USER}@${IPS[k8s-cp1]}"
+echo "    ssh -i ${SSH_KEY} ${SSH_USER}@${IPS[k8s-w1]}"
+echo "    ssh -i ${SSH_KEY} ${SSH_USER}@${IPS[k8s-w2]}"
+echo
+echo "[*] Fallback NAT SSH (debug):"
+echo "    ssh -i ${SSH_KEY} -p ${PFPORTS[k8s-cp1]} ${SSH_USER}@127.0.0.1"
+echo "    ssh -i ${SSH_KEY} -p ${PFPORTS[k8s-w1]}  ${SSH_USER}@127.0.0.1"
+echo "    ssh -i ${SSH_KEY} -p ${PFPORTS[k8s-w2]}  ${SSH_USER}@127.0.0.1"

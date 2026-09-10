@@ -1,0 +1,45 @@
+#cloud-config
+autoinstall:
+  version: 1
+  refresh-installer:
+    update: false
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+  timezone: Etc/UTC
+  identity:
+    hostname: ${jsonencode(hostname)}
+    username: ${jsonencode(ssh_username)}
+    password: ${jsonencode(password_hash)}
+  ssh:
+    install-server: true
+    allow-pw: false
+    authorized-keys:
+      - ${jsonencode(ssh_pubkey)}
+  network:
+    version: 2
+    ethernets:
+      enp0s3:
+        dhcp4: true
+        dhcp6: false
+  storage:
+    layout:
+      name: direct
+    swap:
+      size: 0
+  packages:
+    - python3
+    - sudo
+    - openssh-server
+    - cloud-init
+    - ca-certificates
+    - curl
+    - rsync
+  updates: security
+  shutdown: reboot
+  late-commands:
+    - >-
+      curtin in-target --target=/target -- sh -c
+      'printf "%s\n" "${ssh_username} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-packer'
+    - curtin in-target --target=/target -- chmod 0440 /etc/sudoers.d/90-packer
+    - curtin in-target --target=/target -- visudo -cf /etc/sudoers.d/90-packer
