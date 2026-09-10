@@ -1,4 +1,6 @@
-# Ubuntu 24.04 golden image for a Kubespray VirtualBox lab
+# Shared Ubuntu 24.04 golden image
+
+For the shared Kubernetes, Ubuntu and GitLab workflow, follow [the repository README](../README.md). New builds default to a 64 GiB disk. The standalone instructions below describe only building and inspecting the base image.
 
 This package prepares one reusable Ubuntu Server image using Packer and VirtualBox.
 It contains source files, not an already-built OVF or disk image.
@@ -182,3 +184,4 @@ image build.
 - https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html
 - https://docs.cloud-init.io/en/latest/reference/cli.html
 - https://releases.ubuntu.com/noble/SHA256SUMS
+

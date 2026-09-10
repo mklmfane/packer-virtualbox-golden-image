@@ -5,7 +5,8 @@ vm_hostname          = "ubuntu-2404-k8s-template"
 headless             = true
 cpus                 = 2
 memory               = 4096
-disk_size            = 32768
+disk_size            = 65536
 
 # Optional: password_hash = "$6$..." for a console password.
 # Default is a locked password. SSH uses public-key authentication only.
+

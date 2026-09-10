@@ -1,0 +1,51 @@
+{
+  "ssh_username": "ubuntu",
+  "ssh_private_key_file": "~/.ssh/kubespray-lab",
+  "hostonly_adapter": "vboxnet0",
+  "hostonly_ip": "192.168.56.1",
+  "kubernetes_minor": "1.34",
+  "calico_version": "3.31.0",
+  "pod_cidr": "172.16.0.0/16",
+  "service_cidr": "172.17.0.0/18",
+  "nodes": {
+    "k8s": [
+      {
+        "name": "k8s-controlplane-01",
+        "ip": "192.168.56.10",
+        "role": "controlplane",
+        "cpus": 2,
+        "memory": 4096
+      },
+      {
+        "name": "k8s-worker-01",
+        "ip": "192.168.56.11",
+        "role": "worker",
+        "cpus": 2,
+        "memory": 2048
+      },
+      {
+        "name": "k8s-worker-02",
+        "ip": "192.168.56.12",
+        "role": "worker",
+        "cpus": 2,
+        "memory": 2048
+      }
+    ],
+    "ubuntu": [
+      {
+        "name": "ubuntu-lab",
+        "ip": "192.168.56.20",
+        "cpus": 2,
+        "memory": 2048
+      }
+    ],
+    "gitlab": [
+      {
+        "name": "gitlab-lab",
+        "ip": "192.168.56.30",
+        "cpus": 4,
+        "memory": 8192
+      }
+    ]
+  }
+}

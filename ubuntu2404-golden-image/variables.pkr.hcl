@@ -48,7 +48,7 @@ variable "memory" {
 
 variable "disk_size" {
   type    = number
-  default = 32768
+  default = 65536
 }
 
 variable "iso_url" {
@@ -60,3 +60,4 @@ variable "iso_checksum" {
   type    = string
   default = "sha256:c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b"
 }
+

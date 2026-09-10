@@ -41,7 +41,7 @@ values = {
     'headless': True,
     'cpus': 2,
     'memory': 4096,
-    'disk_size': 32768,
+    'disk_size': 65536,
 }
 with open('values.pkrvars.hcl', 'x') as output:
     for name, value in values.items():
@@ -49,3 +49,4 @@ with open('values.pkrvars.hcl', 'x') as output:
 pathlib.Path('values.pkrvars.hcl').chmod(0o600)
 PY
 echo 'Created values.pkrvars.hcl. Next: packer init .'
+
