@@ -16,8 +16,11 @@ source "virtualbox-iso" "windows" {
   disk_size            = var.disk_size
   headless             = var.headless
   hard_drive_interface = "sata"
-  guest_additions_mode = "upload"
-  guest_additions_path = "C:/Windows/Temp/VBoxGuestAdditions.iso"
+  #guest_additions_mode = "upload"
+  #guest_additions_path = "C:/Windows/Temp/VBoxGuestAdditions.iso"
+  
+  guest_additions_mode      = "attach"
+  guest_additions_interface = "ide"
   iso_url              = var.iso_url
   iso_checksum         = var.iso_checksum
   format               = "ovf"
@@ -60,7 +63,7 @@ source "virtualbox-iso" "windows" {
     ["modifyvm", "{{.Name}}", "--rtc-use-utc", "on", "--nested-hw-virt", "on"],
     ["modifyvm", "{{.Name}}", "--graphicscontroller", "vboxsvga", "--vram", "128", "--accelerate-3d", "off"]
   ]
-  
+
   shutdown_command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\WindowsLab\\Seal-Image.ps1"
   shutdown_timeout = "30m"
 }
