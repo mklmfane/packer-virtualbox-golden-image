@@ -40,12 +40,27 @@ source "virtualbox-iso" "windows" {
     })
     "Bootstrap-WinRM.ps1" = file("${path.root}/../shared/scripts/Bootstrap-WinRM.ps1")
   }
-  boot_wait    = "2s"
-  boot_command = ["<spacebar><wait1><spacebar><wait1><spacebar>"]
+
+  boot_wait = "1s"
+
+  boot_command = [
+    "<spacebar><wait1>",
+    "<spacebar><wait1>",
+    "<spacebar><wait1>",
+    "<spacebar><wait1>",
+    "<spacebar><wait1>",
+    "<spacebar><wait1>",
+    "<spacebar><wait1>",
+    "<spacebar><wait1>",
+    "<spacebar><wait1>",
+    "<spacebar><wait1>"
+  ]
+  
   vboxmanage = [
     ["modifyvm", "{{.Name}}", "--rtc-use-utc", "on", "--nested-hw-virt", "on"],
     ["modifyvm", "{{.Name}}", "--graphicscontroller", "vboxsvga", "--vram", "128", "--accelerate-3d", "off"]
   ]
+  
   shutdown_command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\WindowsLab\\Seal-Image.ps1"
   shutdown_timeout = "30m"
 }
@@ -54,25 +69,32 @@ build {
   provisioner "powershell" {
     inline = ["New-Item -ItemType Directory -Force C:\\WindowsLab | Out-Null"]
   }
+
   provisioner "file" {
     source      = "${path.root}/../shared/scripts/"
     destination = "C:/WindowsLab/"
   }
+
   provisioner "powershell" {
     inline = ["& C:\\WindowsLab\\Install-GuestAdditions.ps1"]
   }
+
   provisioner "windows-restart" {
     restart_timeout = "30m"
   }
+
   provisioner "powershell" {
     inline = ["& C:\\WindowsLab\\Test-GuestAdditions.ps1"]
   }
+
   provisioner "powershell" {
     inline = ["& C:\\WindowsLab\\Install-WslDocker.ps1 -Stage Features"]
   }
+
   provisioner "windows-restart" {
     restart_timeout = "30m"
   }
+
   provisioner "powershell" {
     inline = [
       "& C:\\WindowsLab\\Test-GuestAdditions.ps1",
@@ -81,10 +103,12 @@ build {
       "Set-TimeZone -Id 'GTB Standard Time'"
     ]
   }
+
   provisioner "file" {
     content     = jsonencode({ initialize_swarm = var.initialize_swarm })
     destination = "C:/WindowsLab/postdeploy-settings.json"
   }
+
   provisioner "powershell" {
     inline = [
       "& C:\\WindowsLab\\Register-PostDeploy.ps1",
