@@ -1,0 +1,11 @@
+**/generated/
+**/output-*/
+**/packer_cache/
+*.iso
+*.vmdk
+*.ovf
+*.ova
+*.exe
+*.zip
+*.log
+__pycache__/

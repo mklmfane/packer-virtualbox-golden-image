@@ -18,3 +18,4 @@ packer_cache/
 lab.local.json
 .lab/
 __pycache__/
+*.iso

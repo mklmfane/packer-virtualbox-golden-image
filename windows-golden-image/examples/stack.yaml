@@ -1,0 +1,19 @@
+version: "3.8"
+services:
+  iis:
+    image: mcr.microsoft.com/windows/servercore/iis:windowsservercore-ltsc2022
+    isolation: process
+    ports:
+      - target: 80
+        published: 8080
+        protocol: tcp
+        mode: host
+    deploy:
+      mode: global
+      placement:
+        constraints:
+          - node.platform.os == windows
+          - node.labels.release == ltsc2022
+networks:
+  default:
+    driver: overlay
